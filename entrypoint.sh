@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 
-set -x
-
 # Function to check environment variables
 check_env_var() {
   var_name="$1"
-  if [ -z "${!var_name}" ]; then
+  if [ -z "$(eval echo \$$var_name)" ]; then
     echo "Error: Environment variable $var_name is not set or is empty."
     exit 1
   fi

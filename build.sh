@@ -26,6 +26,9 @@ if ! dpkg -l | grep -qw qemu-user-static; then
   sudo apt-get install -y qemu-user-static
 fi
 
+# Get the last commit SHA in short format
+COMMIT_SHA=$(git rev-parse --short HEAD)
+
 for PLATFORM in "${PLATFORMS[@]}"; do
   # Check if the buildx is available for the specified platform
   BUILDER_NAME="${PLATFORM}builder"
@@ -43,13 +46,25 @@ for PLATFORM in "${PLATFORMS[@]}"; do
   echo "Building the image for $PLATFORM..."
   docker buildx build --platform linux/"$PLATFORM" --no-cache . -t claude-proxy-api:${PLATFORM}-latest --load
 
-  # Tag the image with the registry URI and platform
-  echo "Tagging Docker image with platform..."
+  # Tag the image with the registry URI, platform, and 'latest'
+  echo "Tagging Docker image with platform and 'latest'..."
   docker tag claude-proxy-api:${PLATFORM}-latest ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-latest
 
-  # Push the image to the registry
-  echo "Pushing Docker image to registry..."
+  # Tag the image with the registry URI, platform, and commit SHA
+  echo "Tagging Docker image with platform and commit SHA..."
+  docker tag claude-proxy-api:${PLATFORM}-latest ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-${COMMIT_SHA}
+
+  # Push the image with the 'latest' tag to the registry
+  echo "Pushing Docker image with 'latest' tag to registry..."
   docker push ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-latest
+
+  # Push the image with the commit SHA tag to the registry
+  echo "Pushing Docker image with commit SHA tag to registry..."
+  docker push ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-${COMMIT_SHA}
 done
 
-echo "Build and push for all platforms completed."
+echo "Build and push process for all platforms has successfully completed. The following tags have been pushed:"
+for PLATFORM in "${PLATFORMS[@]}"; do
+  echo "- ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-latest"
+  echo "- ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-${COMMIT_SHA}"
+done
