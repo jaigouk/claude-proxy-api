@@ -74,7 +74,7 @@ curl http://localhost:8000/v1/chat/completions \
   {"role": "user", "content": "What'\''s the population of Paris?"}
 ],
 "temperature": 0.7
-}'
+}' | jq
 ```
 
 - Chat completion (streaming) with a system prompt and user message:
@@ -107,7 +107,22 @@ curl http://localhost:8000/v1/chat/completions \
   {"role": "user", "content": "Castle"}
 ],
 "temperature": 0.9
-}'
+}' | jq
+```
+
+- JSON mode
+```
+curl -v http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_claude_proxy_api_key" \
+  -d '{
+    "model": "claude-3-haiku-20240307",
+    "messages": [
+      {"role": "user", "content": "Generate a JSON object with information about three random books, including title, author, and publication year."}
+    ],
+    "temperature": 0.7,
+    "response_format": {"type": "json_object"}
+  }' | jq
 ```
 
 These examples demonstrate various ways to use the API, including:
@@ -137,9 +152,11 @@ You can configure the following parameters in the `.env` file:
 - `MODEL_TEMPERATURE`: Default temperature for the model (default: 0.7)
 - `MAX_TOKENS`: Maximum number of tokens for responses (default: 4096)
 
-## Contributing
+## Building and Deploying the Docker Image
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+```sh
+CLAUDE_PROXY_API_DOCKER_REGISTRY_URI=https://xxx ./build.sh
+```
 
 
 ### References

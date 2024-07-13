@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Dict
 import uuid
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import Request
+from fastapi import Request, Header, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi import FastAPI
@@ -52,7 +52,6 @@ logger = setup_logger("server-openai")
 app = FastAPI()
 
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
-
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Environment variables
@@ -61,6 +60,9 @@ if not CLAUDE_PROXY_API_KEY:
     raise ValueError("CLAUDE_PROXY_API_KEY must be set")
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+if not ANTHROPIC_API_KEY:
+    raise ValueError("ANTHROPIC_API_KEY must be set")
+
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT", 60))
 MODEL_TEMPERATURE = float(os.getenv("MODEL_TEMPERATURE", 0.7))
@@ -68,8 +70,6 @@ MAX_TOKENS = int(os.getenv("MAX_TOKENS", 4096))
 
 # Anthropic client initialization
 client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
-from fastapi import HTTPException, Header
 
 
 async def verify_api_key(authorization: str = Header(...)):
@@ -131,45 +131,77 @@ async def create_chat_completion(request: Request, authorization: str = Header(.
         max_tokens = data.get("max_tokens", MAX_TOKENS)
         temperature = data.get("temperature")
         stream = data.get("stream", False)
+        response_format = data.get("response_format")
 
         logger.info(
-            f"Processing request: stream={stream}, max_tokens={max_tokens}, temperature={temperature}"
+            f"Processing request: stream={stream}, max_tokens={max_tokens}, temperature={temperature}, response_format={response_format}"
         )
         logger.debug(f"Messages: {messages}")
 
         # Extract system message if present
         system_message = None
-        anthropic_messages = []
+        user_messages = []
         for msg in messages:
             if msg["role"] == "system":
                 system_message = msg["content"]
             else:
-                anthropic_messages.append(
-                    {"role": msg["role"], "content": msg["content"]}
-                )
+                user_messages.append(msg)
 
         # Prepare API call parameters
         api_params = {
             "model": ANTHROPIC_MODEL,
             "max_tokens": max_tokens,
-            "messages": anthropic_messages,
+            "messages": user_messages,
         }
-        if temperature is not None:
-            api_params["temperature"] = temperature
         if system_message:
             api_params["system"] = system_message
+        if temperature is not None:
+            api_params["temperature"] = temperature
+
+        # Handle response_format
+        json_response_required = (
+            response_format and response_format.get("type") == "json_object"
+        )
+        if json_response_required:
+            json_instruction = (
+                "You must respond with a valid JSON object only, without any additional text. "
+                "Do not include markdown formatting or code blocks. "
+                "The response should be parseable by a JSON parser."
+            )
+
+            if system_message:
+                api_params["system"] = f"{system_message}\n\n{json_instruction}"
+            else:
+                api_params["system"] = json_instruction
 
         try:
             if stream:
                 logger.info("Starting streaming response")
                 return StreamingResponse(
-                    chat_completion_stream(api_params),
+                    chat_completion_stream(api_params, json_response_required),
                     media_type="text/event-stream",
                 )
             else:
                 logger.info("Starting non-streaming response")
                 response = await client.messages.create(**api_params)
                 logger.debug(f"Received response from Anthropic: {response}")
+
+                if json_response_required:
+                    # Attempt to parse and format the response as JSON
+                    try:
+                        content = response.content[0].text if response.content else ""
+                        json_content = json.loads(content)
+                        formatted_json = json.dumps(
+                            json_content, ensure_ascii=False, indent=2
+                        )
+                        response.content[0].text = formatted_json
+                    except json.JSONDecodeError:
+                        logger.error("Failed to parse response as JSON")
+                        return create_error_response(
+                            HTTPStatus.INTERNAL_SERVER_ERROR,
+                            "Failed to generate a valid JSON response",
+                        )
+
                 return JSONResponse(create_chat_completion_response(response))
         except Exception as e:
             logger.error(f"Error in request to Anthropic API: {str(e)}", exc_info=True)
@@ -187,7 +219,9 @@ async def create_chat_completion(request: Request, authorization: str = Header(.
         )
 
 
-async def chat_completion_stream(api_params: Dict) -> AsyncGenerator[str, None]:
+async def chat_completion_stream(
+    api_params: Dict, json_response_required: bool
+) -> AsyncGenerator[str, None]:
     try:
         async with client.messages.stream(**api_params) as stream:
             async for event in stream:

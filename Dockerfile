@@ -1,5 +1,5 @@
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
-ARG VERSION=0.5.1
+FROM python:3.10.14-slim-bookworm
+
 WORKDIR /workspace
 
 ENV ANTHROPIC_API_KEY=""

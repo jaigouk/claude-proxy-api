@@ -1,25 +1,19 @@
 #!/bin/bash
 
-
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# Read the DOCKER_REGISTRY_URI from environment variable
-DOCKER_REGISTRY_URI=${DOCKER_REGISTRY_URI:-"192.168.8.213:30501"}
-
-# Enable Docker CLI experimental features
-export DOCKER_CLI_EXPERIMENTAL=enabled
-
-# Check if the buildx is available
-if ! docker buildx ls | grep -q arm64builder; then
-  echo "Creating a new builder instance named arm64builder..."
-  # Create a new builder instance
-  docker buildx create --name arm64builder
+# Accept CLAUDE_PROXY_API_DOCKER_REGISTRY_URI from the user or use the environment variable. If both are empty, warn and exit.
+CLAUDE_PROXY_API_DOCKER_REGISTRY_URI=${1:-${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI:-""}}
+if [ -z "$CLAUDE_PROXY_API_DOCKER_REGISTRY_URI" ]; then
+  echo "Error: CLAUDE_PROXY_API_DOCKER_REGISTRY_URI is not set. Please provide it as an argument or set the environment variable."
+  exit 1
 fi
 
-# Switch to the new builder instance
-echo "Switching to arm64builder..."
-docker buildx use arm64builder
+export DOCKER_CLI_EXPERIMENTAL=enabled
+
+# Define platforms to build for
+PLATFORMS=("arm64" "amd64")
 
 # Enable emulation if it's not already enabled
 echo "Enabling emulation..."
@@ -32,17 +26,30 @@ if ! dpkg -l | grep -qw qemu-user-static; then
   sudo apt-get install -y qemu-user-static
 fi
 
-# Build the image
-echo "Building the image..."
-docker buildx build --platform linux/arm64 --no-cache . -t claude-proxy-api:latest --load
+for PLATFORM in "${PLATFORMS[@]}"; do
+  # Check if the buildx is available for the specified platform
+  BUILDER_NAME="${PLATFORM}builder"
+  if ! docker buildx ls | grep -q "$BUILDER_NAME"; then
+	echo "Creating a new builder instance named $BUILDER_NAME..."
+	# Create a new builder instance
+	docker buildx create --name "$BUILDER_NAME"
+  fi
 
+  # Switch to the new builder instance
+  echo "Switching to $BUILDER_NAME..."
+  docker buildx use "$BUILDER_NAME"
 
-# Tag the image with the registry URI
-echo "Tagging Docker image..."
-docker tag claude-proxy-api:latest ${DOCKER_REGISTRY_URI}/19hz/claude-proxy-api:latest
+  # Build the image for the specified platform
+  echo "Building the image for $PLATFORM..."
+  docker buildx build --platform linux/"$PLATFORM" --no-cache . -t claude-proxy-api:${PLATFORM}-latest --load
 
-# Push the image to the registry
-echo "Pushing Docker image to registry..."
-docker push ${DOCKER_REGISTRY_URI}/19hz/claude-proxy-api:latest
+  # Tag the image with the registry URI and platform
+  echo "Tagging Docker image with platform..."
+  docker tag claude-proxy-api:${PLATFORM}-latest ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-latest
 
-echo "Build and push completed."
+  # Push the image to the registry
+  echo "Pushing Docker image to registry..."
+  docker push ${CLAUDE_PROXY_API_DOCKER_REGISTRY_URI}/claude-proxy-api:${PLATFORM}-latest
+done
+
+echo "Build and push for all platforms completed."
