@@ -11,16 +11,20 @@ ENV TOKENS_PER_MINUTE=10000
 ENV REQUESTS_PER_MINUTE=60
 ENV MAX_TOKENS=4096
 
+# Use a single RUN command to update, install, and clean up in one layer to keep the image size down
 RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
     apt-get update && \
-    apt-get -y --no-install-recommends install \
-    python3 python3-pip && \
+    apt-get -y --no-install-recommends install python3 python3-pip && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Ensure pip is upgraded using python3 explicitly
 RUN python3 -m pip install --no-cache-dir --upgrade pip wheel
 
 COPY requirements.txt .
 
-RUN pip install -r requirements.txt
+# Use python3 explicitly to ensure consistency
+RUN python3 -m pip install -r requirements.txt
 
 COPY . .
 

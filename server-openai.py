@@ -3,10 +3,11 @@ import json
 import logging
 import os
 import time
+import uuid
+from typing import AsyncGenerator, Dict
+
 from datetime import datetime
 from http import HTTPStatus
-from typing import AsyncGenerator, Dict
-import uuid
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Request, Header, HTTPException
@@ -223,10 +224,40 @@ async def chat_completion_stream(
     api_params: Dict, json_response_required: bool
 ) -> AsyncGenerator[str, None]:
     try:
+        completion_id = f"chatcmpl-{uuid.uuid4()}"
+        created_time = int(time.time())
+
         async with client.messages.stream(**api_params) as stream:
+            yield format_stream_response(completion_id, created_time, "start")
+
+            buffer = ""
             async for event in stream:
                 if event.type == "content_block_delta":
-                    yield format_stream_response(event)
+                    buffer += event.delta.text
+                    if json_response_required:
+                        # For JSON responses, stream complete objects or array elements
+                        chunks = split_json_chunks(buffer)
+                        for chunk in chunks[:-1]:  # All complete chunks
+                            yield format_stream_response(
+                                completion_id, created_time, "delta", chunk
+                            )
+                        buffer = chunks[-1]  # Keep the incomplete chunk in the buffer
+                    else:
+                        # For non-JSON responses, stream by sentences or fixed chunk size
+                        chunks = split_text_chunks(buffer)
+                        for chunk in chunks[:-1]:  # All complete chunks
+                            yield format_stream_response(
+                                completion_id, created_time, "delta", chunk
+                            )
+                        buffer = chunks[-1]  # Keep the incomplete chunk in the buffer
+
+            # Stream any remaining content in the buffer
+            if buffer:
+                yield format_stream_response(
+                    completion_id, created_time, "delta", buffer
+                )
+
+            yield format_stream_response(completion_id, created_time, "stop")
 
         yield "data: [DONE]\n\n"
     except Exception as e:
@@ -235,22 +266,69 @@ async def chat_completion_stream(
         yield "data: [DONE]\n\n"
 
 
-def format_stream_response(event):
+def split_json_chunks(text):
+    chunks = []
+    depth = 0
+    current_chunk = ""
+
+    for char in text:
+        current_chunk += char
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                chunks.append(current_chunk)
+                current_chunk = ""
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def split_text_chunks(text, max_chunk_size=100):
+    chunks = []
+    current_chunk = ""
+
+    for sentence in text.split(". "):
+        if len(current_chunk) + len(sentence) > max_chunk_size:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = sentence
+        else:
+            current_chunk += ". " + sentence if current_chunk else sentence
+
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+
+def format_stream_response(
+    completion_id: str, created_time: int, event_type: str, content: str = ""
+):
     response = {
-        "id": f"chatcmpl-{uuid.uuid4()}",
+        "id": completion_id,
         "object": "chat.completion.chunk",
-        "created": int(time.time()),
+        "created": created_time,
         "model": ANTHROPIC_MODEL,
         "choices": [
             {
                 "index": 0,
-                "delta": {
-                    "content": event.delta.text,
-                },
+                "delta": {},
                 "finish_reason": None,
             }
         ],
     }
+
+    if event_type == "start":
+        response["choices"][0]["delta"] = {"role": "assistant"}
+    elif event_type == "delta":
+        response["choices"][0]["delta"] = {"content": content}
+    elif event_type == "stop":
+        response["choices"][0]["finish_reason"] = "stop"
+
     return f"data: {json.dumps(response)}\n\n"
 
 

@@ -88,7 +88,8 @@ curl http://localhost:8000/v1/chat/completions \
   {"role": "system", "content": "You are a poetic assistant. Always respond in rhyme."},
   {"role": "user", "content": "Tell me about the seasons of the year."}
 ],
-"stream": true
+"stream": true,
+"response_format": {"type": "json_object"}
 }'
 ```
 
