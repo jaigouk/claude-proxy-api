@@ -1,9 +1,9 @@
 FROM python:3.10.14-slim-bookworm
-
 WORKDIR /workspace
 
-ENV ANTHROPIC_API_KEY=""
-ENV CLAUDE_PROXY_API_KEY=""
+# Set default environment variables
+ENV ANTHROPIC_API_KEY="mock_anthropic_api_key"
+ENV CLAUDE_PROXY_API_KEY="mock_claude_proxy_api_key"
 ENV ANTHROPIC_MODEL="claude-3-haiku-20240307"
 ENV REQUEST_TIMEOUT=60
 ENV MODEL_TEMPERATURE=0.1
@@ -23,7 +23,6 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip wheel
 
 COPY requirements.txt .
 
-# Use python3 explicitly to ensure consistency
 RUN python3 -m pip install -r requirements.txt
 
 COPY . .

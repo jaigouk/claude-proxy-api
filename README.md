@@ -37,7 +37,7 @@ This project implements a FastAPI server that acts as a proxy for Anthropic's Cl
 
 4. launch
    ```
-   uvicorn server-openai:app --host 0.0.0.0 --port 8000 --log-level debug
+   uvicorn server_openai:app --host 0.0.0.0 --port 8000 --log-level debug
    ```
 
 ## Usage
