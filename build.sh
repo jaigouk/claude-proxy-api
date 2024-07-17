@@ -29,22 +29,20 @@ fi
 # Get the last commit SHA in short format
 COMMIT_SHA=$(git rev-parse --short HEAD)
 
-for PLATFORM in "${PLATFORMS[@]}"; do
-  # Check if the buildx is available for the specified platform
-  BUILDER_NAME="${PLATFORM}builder"
-  if ! docker buildx ls | grep -q "$BUILDER_NAME"; then
-	echo "Creating a new builder instance named $BUILDER_NAME..."
-	# Create a new builder instance
-	docker buildx create --name "$BUILDER_NAME"
-  fi
-
-  # Switch to the new builder instance
-  echo "Switching to $BUILDER_NAME..."
+# Create a new builder instance if it doesn't exist
+BUILDER_NAME="multiplatform-builder"
+if ! docker buildx ls | grep -q "$BUILDER_NAME"; then
+  echo "Creating a new builder instance named $BUILDER_NAME..."
+  docker buildx create --name "$BUILDER_NAME" --use
+else
+  echo "Using existing builder instance $BUILDER_NAME..."
   docker buildx use "$BUILDER_NAME"
+fi
 
+for PLATFORM in "${PLATFORMS[@]}"; do
   # Build the image for the specified platform
   echo "Building the image for $PLATFORM..."
-  docker buildx build --platform linux/"$PLATFORM" --no-cache . -t claude-proxy-api:${PLATFORM}-latest --load
+  docker buildx build --platform linux/$PLATFORM --build-arg BUILDPLATFORM=linux/$PLATFORM --load -t claude-proxy-api:${PLATFORM}-latest .
 
   # Tag the image with the registry URI, platform, and 'latest'
   echo "Tagging Docker image with platform and 'latest'..."

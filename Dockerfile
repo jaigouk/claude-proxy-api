@@ -1,30 +1,34 @@
-FROM python:3.10.14-slim-bookworm
-WORKDIR /workspace
+# Use a multi-arch base image
+FROM --platform=$BUILDPLATFORM python:3.10.14-slim-bookworm as builder
 
-# Set default environment variables
-ENV ANTHROPIC_API_KEY="mock_anthropic_api_key"
-ENV CLAUDE_PROXY_API_KEY="mock_claude_proxy_api_key"
-ENV ANTHROPIC_MODEL="claude-3-haiku-20240307"
-ENV REQUEST_TIMEOUT=60
-ENV MODEL_TEMPERATURE=0.1
-ENV TOKENS_PER_MINUTE=10000
-ENV REQUESTS_PER_MINUTE=60
-ENV MAX_TOKENS=4096
+# Set work directory
+WORKDIR /app
 
-# Use a single RUN command to update, install, and clean up in one layer to keep the image size down
-RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
-    apt-get update && \
-    apt-get -y --no-install-recommends install python3 python3-pip && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Ensure pip is upgraded using python3 explicitly
-RUN python3 -m pip install --no-cache-dir --upgrade pip wheel
-
+# Install dependencies
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python3 -m pip install -r requirements.txt
-
+# Copy source code
 COPY . .
 
-CMD [ "./entrypoint.sh" ]
+# Final stage
+FROM --platform=$TARGETPLATFORM python:3.10.14-slim-bookworm
+
+WORKDIR /app
+
+# Copy installed dependencies and source code
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /app /app
+
+# Set default environment variables
+ENV ANTHROPIC_API_KEY="mock_anthropic_api_key" \
+    CLAUDE_PROXY_API_KEY="mock_claude_proxy_api_key" \
+    ANTHROPIC_MODEL="claude-3-haiku-20240307" \
+    REQUEST_TIMEOUT=60 \
+    MODEL_TEMPERATURE=0.1 \
+    TOKENS_PER_MINUTE=10000 \
+    REQUESTS_PER_MINUTE=60 \
+    MAX_TOKENS=4096
+
+# Run the application
+CMD ["./entrypoint.sh"]
